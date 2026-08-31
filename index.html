@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>比特币多渠道成交量监控看板</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --c-deriv: #6366f1;
+    --c-spot: #06b6d4;
+    --c-cme: #f59e0b;
+    --c-etf: #10b981;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 32px 16px 48px;
+  }
+  .container { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+  h1 .dot { width: 10px; height: 10px; border-radius: 50%; background: #f7931a; box-shadow: 0 0 12px #f7931a; }
+  #update-time { color: var(--muted); font-size: .85rem; margin: 8px 0 24px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    padding: 20px 24px;
+    border-radius: 14px;
+    margin-bottom: 20px;
+  }
+  .card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 14px; color: var(--muted); }
+  .top-grid { display: grid; grid-template-columns: 5fr 7fr; gap: 20px; }
+  @media (max-width: 820px) { .top-grid { grid-template-columns: 1fr; } }
+  .chart-box { position: relative; height: 300px; }
+  .trend-box { position: relative; height: 320px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  .metric {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    border-top: 3px solid var(--accent);
+  }
+  .metric .label { font-size: .82rem; color: var(--muted); margin-bottom: 8px; }
+  .metric .value { font-size: 1.6rem; font-weight: 700; color: var(--accent); }
+  .metric .usd { font-size: .8rem; color: var(--muted); margin-top: 6px; }
+  .total-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 18px; flex-wrap: wrap; gap: 8px; }
+  .total-row .num { font-size: 2rem; font-weight: 700; color: #f7931a; }
+  footer { color: var(--muted); font-size: .78rem; line-height: 1.8; margin-top: 12px; }
+  footer a { color: #38bdf8; text-decoration: none; }
+  .legend-item { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px dashed var(--border); font-size: .9rem; }
+  .legend-item:last-child { border-bottom: none; }
+  .legend-item .name { display: flex; align-items: center; gap: 8px; }
+  .legend-item .swatch { width: 10px; height: 10px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><span class="dot"></span>比特币全球成交量渠道分布看板</h1>
+  <p id="update-time">加载中 ...</p>
+
+  <div class="total-row card">
+    <span style="color:var(--muted)">当日全渠道总成交额（估算）</span>
+    <span class="num" id="total-usd">--</span>
+  </div>
+
+  <div class="top-grid">
+    <div class="card">
+      <h2>渠道占比</h2>
+      <div class="chart-box"><canvas id="volumeChart"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>各渠道明细</h2>
+      <div id="legend"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>历史趋势（各渠道日成交额）</h2>
+    <div class="trend-box"><canvas id="trendChart"></canvas></div>
+  </div>
+
+  <div class="grid" id="metrics-grid"></div>
+
+  <footer>
+    数据来源：<a href="https://www.coingecko.com/" target="_blank">CoinGecko</a>（加密现货）、
+    <a href="https://finance.yahoo.com/" target="_blank">Yahoo Finance</a>（美股 ETF 与 CME 期货）、
+    <a href="https://www.coinglass.com/" target="_blank">CoinGlass</a>（衍生品，未配置 Key 时按现货量 2.5 倍估算）。<br>
+    CME 期货名义成交额 = 合约张数 × 5 BTC × 结算价；ETF 成交额 = 成交量 × 收盘价。
+    数据每日美股收盘后自动更新，仅供参考，不构成投资建议。
+  </footer>
+</div>
+
+<script>
+const COLORS = {
+  crypto_derivatives: '#6366f1',
+  crypto_spot: '#06b6d4',
+  cme_futures: '#f59e0b',
+  us_etf: '#10b981'
+};
+const NAMES = {
+  crypto_derivatives: '原生加密衍生品',
+  crypto_spot: '原生加密现货',
+  cme_futures: 'CME 合规期货',
+  us_etf: '美股现货 ETF'
+};
+
+function fmtUSD(v) {
+  if (!v) return '$0';
+  if (v >= 1e12) return '$' + (v / 1e12).toFixed(2) + ' 万亿';
+  if (v >= 1e8) return '$' + (v / 1e8).toFixed(1) + ' 亿';
+  if (v >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M';
+  return '$' + Math.round(v).toLocaleString();
+}
+
+Chart.defaults.color = '#94a3b8';
+Chart.defaults.borderColor = '#334155';
+Chart.defaults.font.family = "-apple-system,'PingFang SC','Microsoft YaHei',sans-serif";
+
+async function loadData() {
+  let data;
+  try {
+    const res = await fetch('data.json');
+    data = await res.json();
+  } catch (e) {
+    document.getElementById('update-time').innerText = '数据加载失败，请稍后刷新';
+    return;
+  }
+
+  document.getElementById('update-time').innerText = '最后更新：' + (data.updated_at || '未知');
+
+  const shares = data.summary.shares;
+  const raw = data.summary.raw_usd;
+  document.getElementById('total-usd').innerText = fmtUSD(data.summary.total_volume_usd);
+
+  // ---- 环形图
+  const keys = ['crypto_derivatives', 'crypto_spot', 'cme_futures', 'us_etf'];
+  new Chart(document.getElementById('volumeChart'), {
+    type: 'doughnut',
+    data: {
+      labels: keys.map(k => NAMES[k]),
+      datasets: [{
+        data: keys.map(k => shares[k]),
+        backgroundColor: keys.map(k => COLORS[k]),
+        borderColor: '#1e293b',
+        borderWidth: 3
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      cutout: '62%',
+      plugins: {
+        legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true } },
+        tooltip: { callbacks: { label: c => ` ${c.label}：${c.raw}%（${fmtUSD(raw[keys[c.dataIndex]])}）` } }
+      }
+    }
+  });
+
+  // ---- 明细列表
+  document.getElementById('legend').innerHTML = keys.map(k => `
+    <div class="legend-item">
+      <span class="name"><span class="swatch" style="background:${COLORS[k]}"></span>${NAMES[k]}</span>
+      <span><b>${shares[k]}%</b> <span style="color:var(--muted)">${fmtUSD(raw[k])}</span></span>
+    </div>`).join('');
+
+  // ---- 历史趋势
+  const hist = data.history || [];
+  if (hist.length > 0) {
+    new Chart(document.getElementById('trendChart'), {
+      type: 'bar',
+      data: {
+        labels: hist.map(h => h.date),
+        datasets: keys.map(k => ({
+          label: NAMES[k],
+          data: hist.map(h => (h.raw_usd[k] / 1e8)),
+          backgroundColor: COLORS[k],
+          stack: 'v',
+          borderRadius: 3
+        }))
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true } },
+          tooltip: {
+            callbacks: {
+              label: c => ` ${c.dataset.label}：${fmtUSD(c.raw * 1e8)}`
+            }
+          }
+        },
+        scales: {
+          x: { stacked: true, grid: { display: false } },
+          y: {
+            stacked: true,
+            title: { display: true, text: '亿美元' },
+            ticks: { callback: v => v + '亿' }
+          }
+        }
+      }
+    });
+  }
+
+  // ---- 指标卡片
+  document.getElementById('metrics-grid').innerHTML = keys.map(k => `
+    <div class="metric" style="--accent:${COLORS[k]}">
+      <div class="label">${NAMES[k]} 占比</div>
+      <div class="value">${shares[k]}%</div>
+      <div class="usd">${fmtUSD(raw[k])}</div>
+    </div>`).join('');
+}
+loadData();
+</script>
+</body>
+</html>
