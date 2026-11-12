@@ -1,18 +1,18 @@
 {
-  "updated_at": "2026-11-11 00:56:22 UTC",
+  "updated_at": "2026-11-12 02:03:05 UTC",
   "summary": {
-    "total_volume_usd": 112703576232,
+    "total_volume_usd": 97338120900,
     "shares": {
-      "crypto_spot": 27.28,
-      "crypto_derivatives": 68.2,
-      "cme_futures": 2.75,
-      "us_etf": 1.76
+      "crypto_spot": 27.07,
+      "crypto_derivatives": 67.67,
+      "cme_futures": 3.22,
+      "us_etf": 2.05
     },
     "raw_usd": {
-      "crypto_spot": 30747718494,
-      "crypto_derivatives": 76869296235,
-      "cme_futures": 3099518400,
-      "us_etf": 1987043103
+      "crypto_spot": 26346444897,
+      "crypto_derivatives": 65866112242,
+      "cme_futures": 3132653225,
+      "us_etf": 1992910535
     }
   },
   "history": [
@@ -1004,6 +1004,21 @@
         "crypto_derivatives": 68.2,
         "cme_futures": 2.75,
         "us_etf": 1.76
+      }
+    },
+    {
+      "date": "2026-11-12",
+      "raw_usd": {
+        "crypto_spot": 26346444897,
+        "crypto_derivatives": 65866112242,
+        "cme_futures": 3132653225,
+        "us_etf": 1992910535
+      },
+      "shares": {
+        "crypto_spot": 27.07,
+        "crypto_derivatives": 67.67,
+        "cme_futures": 3.22,
+        "us_etf": 2.05
       }
     }
   ]
